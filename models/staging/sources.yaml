@@ -1,0 +1,190 @@
+sources:
+  - name: raw_tables
+    database: inbound-byte-417306 
+    schema: raw_ecomm_analytics
+    tables: 
+        - name: raw_customers
+          identifier: raw_customers
+          description: "Contains customer identifiers and customer location attributes. The table grain is one row per customer_id, which represents the customer identifier used in orders. customer_unique_id can be used to group multiple customer records that belong to the same end customer across different purchases. "
+          columns:
+            - name: customer_id 
+              description: "Unique customer identifier at the order/customer record level. FK."
+              data_tests:        
+                - unique
+                - not_null
+            - name: customer_unique_id 
+              description: "Identifier that represents the same end customer across multiple purchases. Unlike customer_id, this field may appear more than once because the same customer can place multiple orders. PK."
+            - name: customer_zip_code_prefix 
+              description: "Customer ZIP code prefix associated with the customer location."
+            - name: customer_city 
+              description: "Customer city name associated with the customer location. Useful for geographic analysis, customer distribution, and regional sales insights."
+            - name: customer_state
+              description: "Two-letter state code associated with the customer location. Useful for aggregating customers, orders, and revenue by state."
+            - name: loaded_ts_utc         
+              description: "Timestamp when the data was loaded into the raw schema."
+
+        - name: raw_geolocation
+          identifier: raw_geolocation
+          description: "Contains ZIP code prefixes, latitude, longitude, city, and state attributes. The table grain is one row per geolocation observation, not one row per ZIP code prefix, because the same ZIP code prefix can appear multiple times with different latitude and longitude values."
+          columns:
+            - name: geolocation_zip_code_prefix
+              description: "ZIP code prefix used to approximate the geographic location of customers and sellers. This field is not unique because multiple geolocation records can exist for the same prefix."
+            - name: geolocation_lat
+              description: "Latitude coordinate associated with the ZIP code prefix."
+            - name: geolocation_lng
+              description: "Longitude coordinate associated with the ZIP code prefix."
+            - name: geolocation_city
+              description: "City name associated with the geolocation ZIP code prefix."
+            - name: geolocation_state
+              description: "Two-letter state code associated with the geolocation ZIP code prefix."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+        - name: raw_order_items
+          identifier: raw_order_items
+          description: "Contains product-level line items for each order, including seller, product, price, freight value, and shipping limit date. The table grain is one row per order item, identified by the combination of order_id and order_item_id."
+          columns:
+            - name: order_id
+              description: "Unique identifier of the order. This field can appear multiple times when an order contains more than one item. FK."
+            - name: order_item_id
+              description: "Sequential item number within an order. Together with order_id, this field identifies a specific order line item."
+            - name: product_id
+              description: "Unique identifier of the product sold in the order item. This field can be joined with the products dataset. FK."
+            - name: seller_id
+              description: "Unique identifier of the seller responsible for the order item. FK."
+            - name: shipping_limit_date
+              description: "Deadline timestamp by which the seller was expected to ship the item."
+            - name: price
+              description: "Item price paid by the customer, excluding freight value."
+            - name: freight_value
+              description: "Freight or shipping amount associated with the order item."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+
+        - name: raw_order_payments
+          identifier: raw_order_payments
+          description: "Contains payment method, payment sequence, installments, and payment value for each order. The table grain is one row per payment transaction or payment sequence within an order."
+          columns:
+            - name: order_id
+              description: "Unique identifier of the order associated with the payment. This field can appear multiple times when an order has more than one payment sequence. FK."
+            - name: payment_sequential
+              description: "Sequential number of the payment record within an order. Useful for identifying multiple payments or split payment transactions."
+            - name: payment_type
+              description: "Payment method used by the customer, such as credit card, boleto, voucher, debit card, or other available payment types."
+              data_tests:
+                - accepted_values:
+                    arguments:
+                      values: ['credit_card', 'voucher', 'not_defined', 'boleto', 'debit_card']
+            - name: payment_installments
+              description: "Number of installments selected for the payment."
+            - name: payment_value
+              description: "Total payment amount for the payment sequence."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+
+        - name: raw_order_reviews
+          identifier: raw_order_reviews
+          description: "Contains customer review scores, optional review comments, review creation date, and review answer timestamp. The table grain is one row per review record associated with an order, although duplicate review_id or order_id values may exist and should be handled in downstream modeling."
+          columns:
+            - name: review_id
+              description: "Identifier of the customer review. pending PK"
+            - name: order_id
+              description: "Unique identifier of the order associated with the review. FK."
+            - name: review_score
+              description: "Customer satisfaction score assigned to the order, typically ranging from 1 to 5."
+            - name: review_comment_title
+              description: "Optional title provided by the customer for the review. This field can contain null values when no title was submitted."
+            - name: review_comment_message
+              description: "Optional free-text review message provided by the customer. This field can contain null values when no written comment was submitted."
+            - name: review_creation_date
+              description: "Timestamp or date when the review was created."
+            - name: review_answer_timestamp
+              description: "Timestamp when the review answer was submitted or recorded."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema." 
+
+
+        
+        - name: raw_orders
+          identifier: raw_orders
+          description: "Contains order-level lifecycle information, including customer identifier, order status, purchase timestamp, approval timestamp, carrier delivery timestamp, customer delivery timestamp, and estimated delivery date. The table grain is one row per order_id."
+          columns:
+            - name: order_id
+              description: "Unique identifier of the order. PK."
+              data_tests:        
+                - unique
+                - not_null
+            - name: customer_id
+              description: "Customer identifier associated with the order. FK."
+            - name: order_status
+              description: "Current or final status of the order, such as delivered, shipped, canceled, invoiced, processing, unavailable, approved, or created."
+              data_tests:
+                - accepted_values:
+                    arguments:
+                      values: ['delivered', 'shipped', 'canceled', 'unavailable', 'invoiced', 'processing', 'created', 'approved']
+            - name: order_purchase_timestamp
+              description: "Timestamp when the customer placed the order."
+            - name: order_approved_at
+              description: "Timestamp when the order payment or purchase was approved. This field can be null for orders that were not approved."
+            - name: order_delivered_carrier_date
+              description: "Timestamp when the order was delivered to the carrier. This field can be null for orders that were not shipped or delivered."
+            - name: order_delivered_customer_date
+              description: "Timestamp when the order was delivered to the customer. This field can be null for orders that were not completed or delivered."
+            - name: order_estimated_delivery_date
+              description: "Estimated delivery date provided for the order."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+
+        - name: raw_products
+          identifier: raw_products
+          description: "Contains product identifiers, product category, product content attributes, number of product photos, and physical product dimensions. The table grain is one row per product_id."
+          columns:
+            - name: product_id
+              description: "Unique identifier of the product. This field is expected to be unique in this raw dataset and can be joined with the order items dataset. PK"
+            - name: product_category_name
+              description: "Product category name in Portuguese. This field can be joined with the product category translation dataset to obtain the English category name."
+            - name: product_name_lenght
+              description: "Length of the product name text. The original source column uses the spelling 'lenght'."
+            - name: product_description_lenght
+              description: "Length of the product description text. The original source column uses the spelling 'lenght'."
+            - name: product_photos_qty
+              description: "Number of product photos available for the product listing."
+            - name: product_weight_g
+              description: "Product weight in grams."
+            - name: product_length_cm
+              description: "Product length in centimeters."
+            - name: product_height_cm
+              description: "Product height in centimeters."
+            - name: product_width_cm
+              description: "Product width in centimeters."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+        - name: raw_sellers
+          identifier: raw_sellers
+          description: "Contains seller identifiers and seller location attributes. The table grain is one row per seller_id."
+          columns:
+            - name: seller_id
+              description: "Unique identifier of the seller. This field is expected to be unique in this raw dataset and can be joined with the order items dataset. PK."
+            - name: seller_zip_code_prefix
+              description: "ZIP code prefix associated with the seller location."
+            - name: seller_city
+              description: "Seller city name associated with the seller location."
+            - name: seller_state
+              description: "Two-letter Brazilian state code associated with the seller location."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."
+
+        - name: raw_product_category_name_translation
+          identifier: raw_product_category_name_translation
+          description: "Contains mappings between Portuguese product category names and their English translations. The table grain is one row per product_category_name."
+          columns:
+            - name: product_category_name
+              description: "Product category name in Portuguese. This field can be joined with the products dataset."
+            - name: product_category_name_english
+              description: "English translation of the Portuguese product category name. Useful for standarized reporting, documentation, and business-facing analytics."
+            - name: loaded_ts_utc
+              description: "Timestamp when the data was loaded into the raw schema."

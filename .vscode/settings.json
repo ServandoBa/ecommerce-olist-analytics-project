@@ -1,0 +1,7 @@
+{
+  // Avoid the dbt extension reformatting generic-test YAML back to the
+  // deprecated flat form (it strips the `arguments:` wrapper on save).
+  "[yaml]": {
+    "editor.formatOnSave": false
+  }
+}

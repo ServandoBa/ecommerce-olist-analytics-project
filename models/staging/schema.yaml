@@ -1,0 +1,120 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Granularity: customer_id (order-level customer record). customer_unique_id identifies the real end customer across orders."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: customer_unique_id
+        data_tests: [not_null]
+
+  - name: stg_orders
+    description: "Granularity: order_id. Order lifecycle and status."
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: order_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['delivered', 'shipped', 'canceled', 'unavailable', 'invoiced', 'processing', 'created', 'approved']
+
+  - name: stg_order_items
+    description: "Granularity: order line item. Surrogate key: order_id + order_item_id."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, order_item_id]
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: product_id
+      - name: seller_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_sellers')
+                field: seller_id
+
+  - name: stg_order_payments
+    description: "Granularity: order_id, payment sequence. Surrogate key: order_id + payment_sequential."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequential]
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+      - name: payment_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['credit_card', 'voucher', 'not_defined', 'boleto', 'debit_card']
+
+  - name: stg_order_reviews
+    description: "Granularity: order_id, review_id. No unique values in review_id."
+    columns:
+      - name: review_id
+        data_tests: [not_null]
+      - name: order_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+      - name: review_score
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+
+  - name: stg_products
+    description: "One row per product_id."
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+
+  - name: stg_sellers
+    description: "One row per seller_id."
+    columns:
+      - name: seller_id
+        data_tests: [unique, not_null]
+
+  - name: stg_geolocation
+    description: >
+      One row per geolocation observation, NOT unique per zip prefix
+      (multiple lat/lng per prefix). Aggregated to a centroid in dim_geography.
+    columns:
+      - name: geolocation_zip_code_prefix
+        data_tests: [not_null]
+
+  - name: stg_product_category_name_translation
+    description: "One row per Portuguese product_category_name with its English translation."
+    columns:
+      - name: product_category_name
+        data_tests: [unique, not_null]
