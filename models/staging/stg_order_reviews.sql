@@ -11,6 +11,7 @@ select
 from {{ source ('raw_tables', 'raw_order_reviews') }} ),
 order_order_reviews_stg_1 as (
     select 
+        {{ dbt_utils.generate_surrogate_key(['order_id', 'review_id']) }} as order_rev_sk,
         trim(review_id) as review_id,
         trim(order_id) as order_id,
         cast(review_score as int) as review_score,
