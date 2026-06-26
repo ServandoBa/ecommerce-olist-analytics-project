@@ -76,29 +76,28 @@ Tests run at both source and model level: `unique`, `not_null`, `relationships` 
 
 ```
 ecomm_analytics_project/
-├── Ingestion/
-│   ├── ing_raw_customers.ipynb      # Python load: CSV -> BigQuery raw
-│   ├── properties.yaml              # project/schema config (gitignored)
-│   └── *.csv                        # source data (gitignored)
-├── macros/
-│   └── generate_schema_name.sql     # clean per-layer schema names
-├── models/
-│   └── staging/
-│       ├── sources.yaml             # raw source defs, tests, docs
-│       ├── schema.yaml              # staging model tests, docs
-│       └── stg_*.sql                # 9 staging models
-├── dbt_project.yml
-├── packages.yml
-└── README.md
++-- Ingestion/              # CSV files and raw load notebook
++-- docs/                   # Data model notes and KPI definitions
++-- macros/                 # dbt macros
++-- models/
+|   +-- staging/
+|   |   +-- sources.yaml    # Raw source definitions
+|   |   +-- schema.yaml     # Staging docs and tests
+|   |   +-- stg_*.sql       # Source-aligned cleaning models
+|   +-- intermediate/
+|       +-- int_*.sql       # Business logic and enrichment models
++-- seeds/                  # Empty for now
++-- dbt_project.yml
++-- packages.yml
++-- package-lock.yml
++-- README.md
 ```
-
-
 ## Roadmap
 
 - [x] Understanding data sources (9 sources)
 - [x] Raw ingestion (multiple sources → BigQuery)
 - [x] Staging layer (cleaning, casting, surrogate keys, tests, docs)
-- [ ] Intermediate layer 
+- [x] Intermediate layer 
 - [ ] Marts (dimensions + fact tables, star schema)
 - [ ] Incremental models with partitioning & clustering on facts
 - [ ] Airflow orchestration
