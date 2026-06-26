@@ -1,4 +1,4 @@
-with int_order_reviews as (
+with order_reviews as (
     select
         order_rev_sk,
         review_id,
@@ -7,47 +7,76 @@ with int_order_reviews as (
         review_comment_title,
         review_comment_message,
         review_creation_date,
-        review_answer_timestamp,
-        row_number() over(partition by order_id order by review_creation_date desc) rn
-    from {{ ref('stg_order_reviews') }}  
+        review_answer_timestamp
+    from {{ ref('stg_order_reviews') }}
 ),
-int_order_reviews_1 as (
-    select order_id,  
+
+ranked_reviews as (
+    select
+        *,
+        row_number() over (
+            partition by order_id
+            order by
+                review_answer_timestamp desc,
+                review_creation_date desc,
+                review_id desc
+        ) as review_rank
+    from order_reviews
+),
+
+review_rollup as (
+    select
+        order_id,
         min(review_creation_date) as first_review_date,
         max(review_creation_date) as last_review_date,
-        count(distinct review_id) as reviews_count,
-        ARRAY_AGG(
-            STRUCT(rn, order_rev_sk, review_id, review_score, review_comment_title, review_comment_message, review_creation_date, review_answer_timestamp)
-            ORDER BY review_creation_date DESC
-            ) as all_reviews
-    from int_order_reviews
+        max(review_answer_timestamp) as last_review_answer_timestamp,
+        count(*) as raw_reviews_count,
+        count(distinct review_id) as distinct_reviews_count,
+        array_agg(
+            struct(
+                review_rank,
+                order_rev_sk,
+                review_id,
+                review_score,
+                review_comment_title,
+                review_comment_message,
+                review_creation_date,
+                review_answer_timestamp
+            )
+            order by review_rank
+        ) as all_reviews
+    from ranked_reviews
     group by order_id
 ),
+
 int_order_reviews_final as (
-    select 
-        orev.order_rev_sk,
-        orev.order_id,
-        orev.review_id,
-        orev.review_score as last_review_score, 
-        case when orev.review_score <= 2 then 'detractor'
-            when orev.review_score = 3 then 'passive'
+    select
+        rr.order_rev_sk,
+        rr.order_id,
+        rr.review_id,
+        rr.review_score,
+        case
+            when rr.review_score <= 2 then 'detractor'
+            when rr.review_score = 3 then 'passive'
             else 'promoter'
-        end as net_promoter_score, 
-        orev1.reviews_count,
-        orev1.all_reviews as agrupated_reviews_msg,
-        orev1.first_review_date,
-        orev1.last_review_date,
-        date_diff(orev1.last_review_date, orev1.first_review_date, day) as days_between_first_and_last_reviews
-    from int_order_reviews orev 
-    left join int_order_reviews_1 orev1 on orev.order_id = orev1.order_id 
-    where orev.rn=1
+        end as review_score_segment,
+        rr.review_comment_title,
+        rr.review_comment_message,
+        rr.review_creation_date,
+        rr.review_answer_timestamp,
+        rollup.raw_reviews_count,
+        rollup.distinct_reviews_count,
+        rollup.all_reviews,
+        rollup.first_review_date,
+        rollup.last_review_date,
+        rollup.last_review_answer_timestamp,
+        timestamp_diff(rollup.last_review_date, rollup.first_review_date, day) as days_between_first_and_last_reviews,
+        timestamp_diff(rr.review_answer_timestamp, rr.review_creation_date, day) as review_response_days
+    from ranked_reviews as rr
+    left join review_rollup as rollup
+        on rr.order_id = rollup.order_id
+    where rr.review_rank = 1
 )
 
---pendiente terminar
 select *
-from int_order_reviews_final o
-
-
-
---inner join (select order_id, count(distinct review_id) from int_order_reviews group by order_id having count(distinct review_id)>1) c on o.order_id = c.order_id order by o.order_id, o.review_id
-
+from int_order_reviews_final

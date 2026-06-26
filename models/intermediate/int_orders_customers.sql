@@ -1,53 +1,75 @@
-with int_orders_customers as (
+with orders_customers as (
     select
-       o.order_id,
-       o.customer_id, 
-       o.order_status,
-       o.order_purchase_timestamp,
-       oc.customer_unique_id,
-       oc.customer_zip_code_prefix,
-       oc.customer_city,
-       oc.customer_state
-    from {{ ref('stg_orders') }} as o
-    left join {{ ref('stg_customers') }} as oc on oc.customer_id = o.customer_id
+        orders.order_id,
+        orders.customer_id,
+        customers.customer_unique_id,
+        customers.customer_zip_code_prefix,
+        customers.customer_city,
+        customers.customer_state,
+        orders.order_status,
+        orders.order_purchase_timestamp
+    from {{ ref('stg_orders') }} as orders
+    left join {{ ref('stg_customers') }} as customers
+        on orders.customer_id = customers.customer_id
 ),
-int_orders_customers_1 as (
-    select 
-        customer_unique_id, 
-        max(order_purchase_timestamp) as last_purchase,
-        count(distinct order_id) as total_orders
-    from int_orders_customers
-    group by 1
+
+ranked_customer_orders as (
+    select
+        *,
+        row_number() over (
+            partition by customer_unique_id
+            order by order_purchase_timestamp desc, order_id desc
+        ) as customer_order_rank
+    from orders_customers
 ),
+
+customer_order_agg as (
+    select
+        customer_unique_id,
+        count(distinct customer_id) as customer_id_count,
+        count(distinct order_id) as total_orders,
+        min(order_purchase_timestamp) as first_purchase_timestamp,
+        max(order_purchase_timestamp) as last_purchase_timestamp,
+        countif(order_status = 'delivered') as delivered_orders_count,
+        count(distinct customer_zip_code_prefix) as customer_zip_code_prefix_count,
+        count(distinct customer_city) as customer_city_count,
+        count(distinct customer_state) as customer_state_count
+    from orders_customers
+    group by customer_unique_id
+),
+
 date_reference as (
-    select max(order_purchase_timestamp) as ref_date
-    from int_orders_customers
+    select max(order_purchase_timestamp) as ref_purchase_timestamp
+    from orders_customers
 ),
-cust_orders_diff as (
-select 
-    oic.customer_unique_id,
-    oic.last_purchase,
-    dr.ref_date,
-    round(date_diff( dr.ref_date, oic.last_purchase, hour)/24,1) as days_since_last_order,
-    oic.total_orders   
-from int_orders_customers_1 oic, date_reference dr
-),
-cust_clustering as (
-select 
-    customer_unique_id,
-    last_purchase,
-    days_since_last_order,
-    case 
-        when days_since_last_orders <= 180 then 'active'
-        else  'sleep'
-    end as customer_cluster
-from cust_orders_diff)
 
+int_orders_customers_final as (
+    select
+        latest.customer_unique_id,
+        latest.customer_id as latest_customer_id,
+        latest.customer_zip_code_prefix,
+        latest.customer_city,
+        latest.customer_state,
+        agg.customer_id_count,
+        agg.total_orders,
+        agg.delivered_orders_count,
+        agg.first_purchase_timestamp,
+        agg.last_purchase_timestamp,
+        round(timestamp_diff(ref.ref_purchase_timestamp, agg.last_purchase_timestamp, hour) / 24, 1) as days_since_last_order,
+        case when agg.total_orders > 1 then 1 else 0 end as repeat_customer_ind,
+        case
+            when timestamp_diff(ref.ref_purchase_timestamp, agg.last_purchase_timestamp, day) <= 180 then 'active'
+            else 'inactive'
+        end as customer_recency_segment,
+        agg.customer_zip_code_prefix_count,
+        agg.customer_city_count,
+        agg.customer_state_count
+    from ranked_customer_orders as latest
+    left join customer_order_agg as agg
+        on latest.customer_unique_id = agg.customer_unique_id
+    cross join date_reference as ref
+    where latest.customer_order_rank = 1
+)
 
-select 
-    orders_cust.*,
-    cc.last_purchase,
-    cc.days_since_last_orders,
-    cc.customer_cluster
-from {{ ref('stg_customers') }} orders_cust
-left join cust_clustering cc on orders_cust.customer_unique_id = cc.customer_unique_id
+select *
+from int_orders_customers_final
