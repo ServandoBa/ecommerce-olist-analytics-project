@@ -110,4 +110,90 @@ This table is the implementation spec for the intermediate layer.
 
 
 
+## Table granularity
 
+Business meaning of a single row. Every fact joins to dimensions only at our above its own grian.
+
+**Dimension tables**
+
+`Dim_date` table will be added to add events during the year or  relevant granularity for date.
+
+| Model | Grain | Natural key |
+|---|---|---|
+| `dim_customers` | unique end customer | `customer_unique_id` |
+| `dim_products` | product | `product_id` |
+| `dim_sellers` | seller | `seller_id` |
+| `dim_geography` | zip-code prefix | `zip_code_prefix` |
+| `dim_date` | calendar day | `date_day` |
+
+
+**Fact tables**
+
+| Model | Grain one row per… | Grain key | date | customers | products | sellers |
+|---|---|---| ---|---|---| ---| 
+| `fct_order_items` | order line item | `order_id` + `order_item_id` (sk) | ✓ | ✓ | ✓ | ✓ | ✓ | 
+| `fct_orders` | order | `order_id` |  ✓ | ✓ | — | — | ✓ |
+| `fct_payments` | payment record within an order | `order_id` + `payment_sequential` (sk) |  ✓ | ✓ | — | — | — | 
+| `fct_reviews` | review (1 per order after dedup) | `order_id` | ✓ | ✓ | — | — | — | 
+
+
+
+## KPI Catalog
+
+Metric definitions with formulas. There are implemented in data marts layer.
+
+### Commercial & growth
+
+| Metric | Business formula | Source | Technical formula |
+|---|---|---|---|
+| GMV | Sum of item prices across valid orders | `fct_order_items` | `sum(price)` |
+| Revenue | Item prices plus freight | `fct_order_items` | `sum(price + freight_value)` | 
+| AOV | Revenue per order | `fct_orders` | `sum(price + freight_value) / count(distinct order_id)` |
+| Monthly GMV | GMV by purchase month | `fct_orders` | `sum(price)` by `purchase_date` in months |
+| Payment method mix | Share of orders by payment type | `fct_payments` | `count(orders) by payment_type / total` |
+| Median installments | Typical credit-card installments (median - more representative) | `fct_payments` | `median(payment_installments)` where `payment_type = 'credit_card'` |
+
+### Logistics & delivery
+
+| Metric | Business formula | Source | Technical formula |
+|---|---|---|---|
+| On-time delivery rate | Share of delivered orders on/before estimate | `fct_orders` | `countif(date(delivered_customer_date) <= estimated_delivery_date) / countif(delivered with date)` |
+| Avg delivery time | Avg days from purchase to delivery | `fct_orders` | `avg(date_diff(delivered_customer_date, purchase_timestamp, day))` |
+| Delivery delay vs estimate | Avg days actual − estimated (+ = late) | `fct_orders` | `avg(date_diff(delivered_customer_date, estimated_delivery_date, day))` |
+| Stage time: approval | Avg hours purchase → approval | `fct_orders` | `avg(date_diff(approved_at, purchase_timestamp, hour))` |
+| Stage time: handover | Avg days approval → carrier | `fct_orders` | `avg(date_diff(delivered_carrier_date, approved_at, day))` |
+| Stage time: transit | Avg days carrier → customer | `fct_orders` | `avg(date_diff(delivered_customer_date, delivered_carrier_date, day))` |
+| Seller SLA compliance | Share of items shipped by limit date | `fct_order_items` | `countif(delivered_carrier_date <= shipping_limit_date) / count(items)` |
+
+### Customer experience & reviews
+
+| Metric | Business formula | Source | Technical formula |
+|---|---|---|---|
+| Avg review score | Average score | `fct_reviews` | `avg(review_score)` |
+| % detractors | Share scored 1–2 | `fct_reviews` | `countif(review_score <= 2) / count(*)` |
+| % passives | Share scored 3 | `fct_reviews` | `countif(review_score = 3) / count(*)` |
+| % promoters | Share scored 4–5 | `fct_reviews` | `countif(review_score >= 4) / count(*)` |
+| NPS-style score | Promoters minus detractors | `fct_reviews` | `(pct_promoters − pct_detractors) * 100` |
+| Score: on-time vs late ⭐ | Avg score split by late flag | `fct_orders` × `fct_reviews` | `avg(review_score) group by is_late` |
+| Review response time | Avg days creation → answer | `fct_reviews` | `avg(date_diff(review_answer_timestamp, review_creation_date, day))` |
+| Review coverage | Share of orders with a review | `fct_orders` × `fct_reviews` | `count(distinct order_id with review) / count(distinct order_id)` |
+
+### Seller & marketplace
+
+| Metric | Business formula | Source | Technical formula |
+|---|---|---|---|
+| Revenue per seller | Revenue attributed to each seller | `fct_order_items` | `sum(price + freight_value)` by `seller_id` |
+| GMV concentration | GMV share of top 10% sellers | mart | cumulative GMV share, top 10% by revenue rank |
+| Active sellers | Distinct sellers selling in period | `fct_order_items` × `dim_date` | `count(distinct seller_id)` per period |
+| Seller on-time rate | On-time rate per seller | `fct_order_items` × `fct_orders` | on-time rate grouped by `seller_id` |
+| Avg score per seller | Average score per seller | `fct_order_items` × `fct_reviews` | `avg(review_score)` by `seller_id` |
+
+### Customer behavior
+
+| Metric | Business formula | Source | Technical formula |
+|---|---|---|---|
+| Repurchase rate | Share of customers with >1 order | `dim_customers` | `countif(order_count > 1) / count(distinct customer_unique_id)` |
+| Avg orders per customer | Orders per distinct customer | `dim_customers` | `count(distinct order_id) / count(distinct customer_unique_id)` |
+| One-time vs recurring revenue | Revenue split by one-time vs repeat | `fct_orders` × `dim_customers` | `sum(revenue)` by `is_one_time` (order_count = 1) |
+| Avg time between orders | Avg days between consecutive orders | `dim_customers` | `avg(date_diff)` between consecutive orders, repeat only |
+| % inactive customers | Share with no order in last 6 months | `dim_customers` | `countif(last_order_date < max_date − 6 months) / count` |

@@ -11,10 +11,6 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
-#seeds:
-  # Builds seeds into '<your_schema_name>_raw'
-#  olist_ecomm_dbt:
-#    +schema: raw
 
 models:
   olist_ecomm_dbt:
@@ -22,4 +18,7 @@ models:
       +materialized: view
       +schema: staging
     intermediate:
-      +materialized: ephemeral 
+      +materialized: ephemeral
+    marts:
+      +materialized: table
+      +schema: marts

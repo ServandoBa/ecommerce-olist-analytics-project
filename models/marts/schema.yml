@@ -1,0 +1,429 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: >
+      Customer dimension at customer_unique_id grain. The model is sourced from
+      int_orders_customers, which joins staged orders and customers, selects the
+      latest transactional customer record for each customer_unique_id, and adds
+      customer identity attributes, latest known location attributes, purchase
+      lifecycle timestamps, order-count metrics, delivered-order metrics,
+      recency metrics, repeat-customer flags, recency segments, and location
+      diversity counts for customer-level analytics.
+    columns:
+      - name: customer_unique_id
+        description: "Customer identifier used for customer-level analytics across multiple transactional customer_id values."
+        data_tests:
+          - unique
+          - not_null
+      - name: latest_customer_id
+        description: "Most recent transactional customer_id associated with the customer_unique_id, selected by latest order_purchase_timestamp and order_id."
+      - name: customer_zip_code_prefix
+        description: "ZIP code prefix from the latest customer record associated with the customer_unique_id."
+      - name: customer_city
+        description: "City from the latest customer record associated with the customer_unique_id."
+      - name: customer_state
+        description: "State from the latest customer record associated with the customer_unique_id."
+      - name: customer_id_count
+        description: "Count of distinct transactional customer_id values observed for the customer_unique_id."
+      - name: total_orders
+        description: "Count of distinct orders placed by the customer_unique_id."
+      - name: delivered_orders_count
+        description: "Count of orders for the customer_unique_id whose order_status is delivered."
+      - name: first_purchase_timestamp
+        description: "Earliest order_purchase_timestamp observed for the customer_unique_id."
+      - name: last_purchase_timestamp
+        description: "Most recent order_purchase_timestamp observed for the customer_unique_id."
+      - name: days_since_last_order
+        description: "Number of days from the dataset-level latest purchase timestamp to the customer's last purchase timestamp."
+      - name: repeat_customer_ind
+        description: "Flag equal to 1 when the customer_unique_id has more than one order, otherwise 0."
+      - name: customer_recency_segment
+        description: "Customer recency label derived from days since last purchase; customers with a purchase within 180 days of the dataset reference date are active, otherwise inactive."
+      - name: customer_zip_code_prefix_count
+        description: "Count of distinct customer ZIP code prefixes observed across the customer's transactional records."
+      - name: customer_city_count
+        description: "Count of distinct customer cities observed across the customer's transactional records."
+      - name: customer_state_count
+        description: "Count of distinct customer states observed across the customer's transactional records."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: dim_products
+    description: >
+      Product dimension at product_id grain. The model is sourced from int_products,
+      which enriches staged product attributes with category fallbacks, translated
+      category names, content attributes, photo counts, physical measurements,
+      weight conversions, weight-band flags, dimensional completeness flags,
+      product volume metrics, and volumetric weight metrics for catalog,
+      logistics, and merchandising analysis.
+    columns:
+      - name: product_id
+        description: "Primary key for a product, sourced from int_products."
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name
+        description: "Product category name (Portuguese), defaulted to uncategorized when the source value is missing."
+      - name: product_category_name_english
+        description: "English product category name from the product translation mapping, falling back to the Portuguese category and then uncategorized when needed."
+      - name: product_name_length
+        description: "Length of the product name text from the staged products data."
+      - name: product_description_length
+        description: "Length of the product description text from the staged products data."
+      - name: product_photos_qty
+        description: "Number of product photos listed for the product."
+      - name: product_weight_g
+        description: "Product weight in grams from the staged products data."
+      - name: product_weight_kg
+        description: "Product weight converted from grams to kilograms as product_weight_g / 1000."
+      - name: product_under_1kg_ind
+        description: "Flag equal to 1 when product_weight_g is less than or equal to 1000 grams, 0 when above that threshold, and null when weight is missing."
+      - name: product_over_5kg_ind
+        description: "Flag equal to 1 when product_weight_g is greater than or equal to 5000 grams, 0 when below that threshold, and null when weight is missing."
+      - name: product_length_cm
+        description: "Product length in centimeters from the staged products data."
+      - name: product_height_cm
+        description: "Product height in centimeters from the staged products data."
+      - name: product_width_cm
+        description: "Product width in centimeters from the staged products data."
+      - name: dimensions_available_ind
+        description: "Flag equal to 1 when length, height, and width are all positive values, otherwise 0."
+      - name: product_volume_cm3
+        description: "Product volume in cubic centimeters, calculated as length times height times width when all dimensions are positive."
+      - name: product_volumetric_weight_kg
+        description: "Estimated volumetric weight in kilograms, calculated as product_volume_cm3 / 5000 when all dimensions are positive."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: dim_sellers
+    description: >
+      Seller dimension at seller_id grain. The model is sourced from stg_sellers
+      and exposes seller identity and location attributes, including ZIP prefix,
+      city, and state, for marketplace, fulfillment, regional performance, and
+      seller distribution reporting.
+    columns:
+      - name: seller_id
+        description: "Primary key for a seller, sourced from stg_sellers."
+        data_tests:
+          - unique
+          - not_null
+      - name: seller_zip_code_prefix
+        description: "ZIP code prefix associated with the seller location."
+      - name: seller_city
+        description: "City associated with the seller location."
+      - name: seller_state
+        description: "Brazilian state code associated with the seller location."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: dim_geography
+    description: >
+      Geography dimension at ZIP code prefix grain. The model is sourced from
+      int_geolocation, which aggregates raw geolocation observations into
+      geographic key attributes, latitude and longitude centroid measures, and
+      modal city and state attributes for regional mapping, customer location,
+      seller location, and logistics analysis.
+    columns:
+      - name: geolocation_zip_code_prefix
+        description: "ZIP code prefix used as the geographic key, sourced from int_geolocation."
+      - name: geolocation_lat_centroid
+        description: "Average latitude across all staged geolocation observations for the ZIP code prefix."
+      - name: geolocation_lng_centroid
+        description: "Average longitude across all staged geolocation observations for the ZIP code prefix."
+      - name: geolocation_city
+        description: "Most frequent city observed for the ZIP code prefix, with alphabetical ordering used as a tie breaker."
+      - name: geolocation_state
+        description: "Most frequent state observed for the ZIP code prefix, with alphabetical ordering used as a tie breaker."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: dim_date
+    description: >
+      Calendar date dimension at daily grain from 2016-01-01 through 2019-01-01. 
+      It contains calendar identifiers, year-quarter-month attributes, 
+      day and weekday attributes, week-of-year attributes, and weekend flags for 
+      joining order dates and supporting time-based reporting.
+    columns:
+      - name: date_day
+        description: "Calendar date at daily grain."
+      - name: year
+        description: "Calendar year extracted from date_day."
+      - name: quarter
+        description: "Calendar quarter extracted from date_day."
+      - name: month
+        description: "Calendar month number extracted from date_day."
+      - name: month_name
+        description: "Full calendar month name formatted from date_day."
+      - name: day
+        description: "Day of month extracted from date_day."
+      - name: day_of_week
+        description: "ISO-style day of week number derived from date_day, where Monday is 1 and Sunday is 7."
+      - name: day_name
+        description: "Full weekday name formatted from date_day."
+      - name: week_of_year
+        description: "Week number extracted from date_day using BigQuery calendar week logic."
+      - name: is_weekend
+        description: "Flag equal to 1 when date_day falls on Saturday or Sunday, otherwise 0."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: fct_order_items
+    description: >
+      Order item fact table at order item grain. The model starts from
+      stg_order_items, joins staged orders and customers to add purchase date and
+      customer_unique_id, and exposes item identifiers, order/customer/product/seller
+      foreign keys, date attributes, shipping deadline attributes, item price
+      metrics, freight metrics, and item revenue metrics for line-item analysis.
+    columns:
+      - name: order_item_sk
+        description: "Surrogate key for each order item record from stg_order_items."
+        data_tests:
+          - unique
+          - not_null
+      - name: order_id
+        description: "Order identifier from stg_order_items. It relates each item to fct_orders.order_id because no dim_orders model exists in the Mart layer."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: order_item_id
+        description: "Sequential item number within the order from stg_order_items."
+      - name: customer_unique_id
+        description: "Customer unique identifier, aligned to dim_customers semantics."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: product_id
+        description: "Product identifier for the order item from stg_order_items."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+      - name: seller_id
+        description: "Seller identifier responsible for the order item from stg_order_items."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_sellers')
+                field: seller_id
+      - name: order_date_key
+        description: "Date key derived as date(order_purchase_timestamp) from stg_orders for joining to dim_date."
+      - name: shipping_limit_date
+        description: "Seller shipping deadline timestamp for the order item."
+      - name: price_amt
+        description: "Item price amount from stg_order_items.price, excluding freight."
+      - name: freight_amt
+        description: "Freight amount from stg_order_items.freight_value for the order item."
+      - name: item_revenue_amt
+        description: "Line-item revenue amount calculated as price plus freight_value."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: fct_orders
+    description: >
+      Order fact table at order_id grain. The model combines fulfillment metrics
+      from int_orders_fulfillment, monetary aggregates from int_orders_amt, and
+      customer lineage from staged orders and customers. It contains order and
+      customer identifiers, date and lifecycle timestamps, order status attributes,
+      GMV/revenue/freight/payment metrics, reconciliation flags, item and payment
+      counts, delivery SLA flags, fulfillment duration metrics, delivery delay
+      metrics, and review timing attributes.
+    columns:
+      - name: order_id
+        description: "Primary key for the order fact table."
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: "Customer unique identifier, aligned to dim_customers semantics."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: order_date_key
+        description: "Date key derived as date(order_purchase_timestamp) from fulfillment data for joining to dim_date."
+      - name: order_status
+        description: "Order lifecycle status from int_orders_fulfillment."
+      - name: order_purchase_timestamp
+        description: "Timestamp when the order was placed."
+      - name: order_approved_at
+        description: "Timestamp when purchase approval occurred."
+      - name: order_delivered_carrier_date
+        description: "Timestamp when the order was handed to the carrier."
+      - name: order_delivered_customer_date
+        description: "Timestamp when the order was delivered to the customer."
+      - name: order_estimated_delivery_date
+        description: "Estimated delivery date for the order."
+      - name: gmv_amt
+        description: "Gross merchandise value for the order, aggregated from item prices in int_orders_amt.order_gmv_amt."
+      - name: freight_amt
+        description: "Total freight amount for the order, aggregated from item freight values in int_orders_amt.order_freight_amt."
+      - name: revenue_amt
+        description: "Total order revenue calculated in int_orders_amt as item prices + freight amounts."
+      - name: payment_amt
+        description: "Total payment amount for the order, aggregated from stg_order_payments in int_orders_amt."
+      - name: revenue_payment_diff_amt
+        description: "Rounded difference between order revenue and payment amount from int_orders_amt."
+      - name: order_items_count
+        description: "Number of order item records associated with the order, calculated in int_orders_amt."
+      - name: payment_records_count
+        description: "Number of payment sequence records associated with the order, calculated in int_orders_amt."
+      - name: has_order_items_ind
+        description: "Flag equal to 1 when the order has at least one order item record, otherwise 0."
+      - name: has_payment_ind
+        description: "Flag equal to 1 when the order has at least one payment record, otherwise 0."
+      - name: revenue_matches_payment_ind
+        description: "Flag equal to 1 when the absolute difference between revenue and payment is less than or equal to 0.01, otherwise 0."
+      - name: delivered_order_ind
+        description: "Flag equal to 1 when order_status is delivered, otherwise 0."
+      - name: has_customer_delivery_date_ind
+        description: "Flag equal to 1 when order_delivered_customer_date is present, otherwise 0."
+      - name: delivered_order_missing_delivery_date_ind
+        description: "Flag equal to 1 when an order is marked delivered but has no customer delivery timestamp."
+      - name: on_time_delivery_ind
+        description: "Flag equal to 1 when customer delivery date is on or before estimated delivery date, 0 when late, and null when delivery date is missing."
+      - name: late_delivery_ind
+        description: "Flag equal to 1 when customer delivery date is after estimated delivery date, 0 when on time, and null when delivery date is missing."
+      - name: hours_between_purchase_and_approval
+        description: "Hours between order purchase and approval timestamps, calculated in int_orders_fulfillment."
+      - name: days_between_purchase_and_approval
+        description: "Days between purchase and approval, calculated from hour difference and rounded to one decimal."
+      - name: hours_between_approval_and_carrier
+        description: "Hours between approval and carrier handoff timestamps, calculated in int_orders_fulfillment."
+      - name: days_between_approval_and_carrier
+        description: "Days between approval and carrier handoff, calculated from hour difference and rounded to one decimal."
+      - name: hours_between_carrier_and_customer
+        description: "Hours between carrier handoff and customer delivery timestamps, calculated in int_orders_fulfillment."
+      - name: days_between_carrier_and_customer
+        description: "Days between carrier handoff and customer delivery, calculated from hour difference and rounded to one decimal."
+      - name: hours_between_purchase_and_delivery
+        description: "Hours between purchase and customer delivery timestamps, calculated in int_orders_fulfillment."
+      - name: days_between_purchase_and_delivery
+        description: "Days between purchase and customer delivery, calculated from hour difference and rounded to two decimals."
+      - name: hours_delivery_vs_estimated
+        description: "Hour difference between actual customer delivery timestamp and estimated delivery date; positive values indicate delivery after estimate."
+      - name: days_delivery_vs_estimated
+        description: "Day difference between actual customer delivery and estimated delivery, calculated from hour difference and rounded to one decimal."
+      - name: days_delivered_after_estimated_on_late_delivery
+        description: "Late-delivery delay in days when late_delivery_ind is 1; otherwise 0."
+      - name: first_review_date
+        description: "Earliest review_creation_date for the order from int_orders_reviews."
+      - name: last_review_date
+        description: "Latest review_creation_date for the order from int_orders_reviews."
+      - name: last_review_answer_timestamp
+        description: "Latest review_answer_timestamp for the order from int_orders_reviews."
+      - name: days_between_first_and_last_reviews
+        description: "Days between the first and last review creation dates for the order, calculated in int_orders_reviews."
+      - name: days_between_delivery_and_last_review
+        description: "Days between customer delivery and the latest review creation date, calculated in int_orders_fulfillment."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: fct_payments
+    description: >
+      Payment fact table at order payment sequence grain. The model starts from
+      stg_order_payments and enriches each payment record with order purchase date
+      and customer_unique_id through staged orders and customers. It contains
+      payment sequence identifiers, order and customer foreign keys, payment
+      method attributes, installment attributes, order date attributes, and
+      payment amount metrics for payment mix and customer-level payment analysis.
+    columns:
+      - name: order_payment_seq_sk
+        description: "Surrogate key for each order payment sequence record from stg_order_payments."
+        data_tests:
+          - unique
+          - not_null
+      - name: order_id
+        description: "Order identifier associated with the payment sequence, sourced from stg_order_payments."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: payment_sequential
+        description: "Sequential payment number within the order from stg_order_payments."
+      - name: customer_unique_id
+        description: "Customer unique identifier, aligned to dim_customers semantics."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: order_date_key
+        description: "Date key derived as date(order_purchase_timestamp) from stg_orders for joining to dim_date."
+      - name: payment_type
+        description: "Payment method used for the payment sequence, sourced from stg_order_payments."
+      - name: installments
+        description: "Number of installments for the payment sequence, aliased from stg_order_payments.payment_installments."
+      - name: payment_value_amt
+        description: "Payment amount for the payment sequence, aliased from stg_order_payments.payment_value."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."
+
+  - name: fct_reviews
+    description: >
+      Review fact table at deduplicated order review grain. The model starts from
+      int_orders_reviews, which keeps the latest review per order and rolls up
+      review counts and review timing attributes, then enriches each review with
+      order date and customer_unique_id. It contains review and order identifiers,
+      customer foreign keys, review score metrics, score segment attributes,
+      comment text attributes, review lifecycle timestamps, response-time metrics,
+      and duplicate-review count metrics for customer experience analysis.
+    columns:
+      - name: order_id
+        description: "Order identifier associated with the review, sourced from int_orders_reviews."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: order_rev_sk
+        description: "Surrogate key for the selected review record from int_orders_reviews."
+        data_tests:
+          - unique
+          - not_null
+      - name: review_id
+        description: "Source review identifier for the selected review record."
+      - name: customer_unique_id
+        description: "Customer unique identifier, aligned to dim_customers semantics."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: order_date_key
+        description: "Date key derived as date(order_purchase_timestamp) from stg_orders for joining to dim_date."
+      - name: review_score
+        description: "Numeric customer review score for the selected review record."
+      - name: review_score_segment
+        description: "Review score segment derived in int_orders_reviews: detractor for scores 1-2, passive for score 3, and promoter for scores 4-5."
+      - name: response_days
+        description: "Number of days between review_creation_date and review_answer_timestamp, aliased from int_orders_reviews.review_response_days."
+      - name: review_comment_title
+        description: "Optional title text for the selected review record."
+      - name: review_comment_message
+        description: "Optional free-text message for the selected review record."
+      - name: review_creation_date
+        description: "Timestamp or date when the selected review was created."
+      - name: review_answer_timestamp
+        description: "Timestamp when the selected review answer was recorded."
+      - name: raw_reviews_count
+        description: "Count of raw review records associated with the order before deduplication."
+      - name: distinct_reviews_count
+        description: "Count of distinct review_id values associated with the order before deduplication."
+      - name: first_review_date
+        description: "Earliest review_creation_date observed for the order."
+      - name: last_review_date
+        description: "Latest review_creation_date observed for the order."
+      - name: last_review_answer_timestamp
+        description: "Latest review_answer_timestamp observed for the order."
+      - name: days_between_first_and_last_reviews
+        description: "Days between first_review_date and last_review_date for the order."
+      - name: loaded_ts_utc
+        description: "Timestamp when the Mart model was generated in UTC."

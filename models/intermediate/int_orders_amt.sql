@@ -9,7 +9,8 @@ order_items as (
         order_item_id,
         price as item_price_amt,
         freight_value as item_freight_amt,
-        price + freight_value as item_revenue_amt
+        price + freight_value as item_revenue_amt,
+        loaded_ts_utc
     from {{ ref('stg_order_items') }}
 ),
 
@@ -19,7 +20,8 @@ order_items_amt as (
         count(*) as order_items_count,
         sum(item_price_amt) as order_gmv_amt,
         sum(item_freight_amt) as order_freight_amt,
-        sum(item_revenue_amt) as order_revenue_amt
+        sum(item_revenue_amt) as order_revenue_amt,
+        max(loaded_ts_utc) as order_items_loaded_ts_utc
     from order_items
     group by order_id
 ),
@@ -28,7 +30,8 @@ order_payments_amt as (
     select
         order_id,
         count(*) as payment_records_count,
-        sum(payment_value) as order_payment_amt
+        sum(payment_value) as order_payment_amt,
+        max(loaded_ts_utc) as order_payments_loaded_ts_utc
     from {{ ref('stg_order_payments') }}
     group by order_id
 ),
@@ -48,7 +51,11 @@ int_order_amt as (
         case
             when abs(coalesce(items.order_revenue_amt, 0) - coalesce(payments.order_payment_amt, 0)) <= 0.01 then 1
             else 0
-        end as revenue_matches_payment_ind
+        end as revenue_matches_payment_ind,
+        greatest(
+            coalesce(items.order_items_loaded_ts_utc, payments.order_payments_loaded_ts_utc),
+            coalesce(payments.order_payments_loaded_ts_utc, items.order_items_loaded_ts_utc)
+        ) as loaded_ts_utc
     from orders
     left join order_items_amt as items
         on orders.order_id = items.order_id
@@ -56,5 +63,17 @@ int_order_amt as (
         on orders.order_id = payments.order_id
 )
 
-select *
+select
+    order_id,
+    order_items_count,
+    payment_records_count,
+    order_gmv_amt,
+    order_freight_amt,
+    order_revenue_amt,
+    order_payment_amt,
+    order_revenue_payment_diff_amt,
+    has_order_items_ind,
+    has_payment_ind,
+    revenue_matches_payment_ind,
+    loaded_ts_utc
 from int_order_amt
